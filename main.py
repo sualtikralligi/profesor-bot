@@ -53,12 +53,15 @@ FIELD_LABELS = {
     "Davranış Biçimi": "Davranışı",
     "Kendi Türlerine Davranışı": "Kendi Türüne Davranışı",
     "Yüzme Seviyesi": "Yüzme Seviyesi",
+    "Cinsiyet Ayrımı": "Cinsiyet Ayrımı",
+    "Üreme": "Üreme",
     "Sıcaklık": "Sıcaklık",
     "En Fazla Büyüdüğü Boy": "En Fazla Büyüdüğü Boy",
     "En Az Akvaryum Hacmi": "Min. Akvaryum Hacmi",
     "Su Sertliği": "Su Sertliği",
     "pH": "pH",
     "Zorluk Seviyesi": "Zorluk Seviyesi",
+    "Genel Yorum": "Genel Yorum",
 }
 
 logging.basicConfig(
