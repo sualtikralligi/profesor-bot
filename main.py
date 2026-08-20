@@ -1,8 +1,11 @@
 import logging
+import os
+import asyncio
 import requests
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from aiohttp import web
 
 # Telegram Bot Token
 TOKEN = "7920321173:AAF2AE2DIbsFU7R4mVRwBC8jrpwLnhkNgXI"
@@ -22,27 +25,21 @@ def bilgi_servisi_ara(balik_adi):
             return "⚠️ Sunucuya şu an ulaşılamıyor, lütfen kısa bir süre sonra tekrar deneyin."
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        # Arama sonuçlarından ilk balık bağlantısını yakalama
         a_tag = soup.find('a', href=lambda href: href and 'asp' in href)
         
         if not a_tag:
             return f"❌ Veritabanımızda **{balik_adi}** ile ilgili doğrudan bir bilgi kaydı bulunamadı. Lütfen ismi kontrol edip tekrar deneyin."
         
         detay_url = "https://www.akvaryum.com/" + a_tag['href']
-        
-        # Detay sayfasından bilgi çekme
         detay_res = requests.get(detay_url, headers=headers, timeout=10)
         detay_soup = BeautifulSoup(detay_res.text, 'html.parser')
         
-        # İçeriği özete dönüştürme ve temizleme
         icerik = detay_soup.find('div', id='icerik') or detay_soup.find('body')
-        
         if not icerik:
             return "❌ İlgili türe ait bilgi kartı oluşturulamadı."
 
         metin = icerik.get_text(separator=' ', strip=True)[:650]
         
-        # Özel bilgi kartı formatı
         return (
             f"📖 **{balik_adi.upper()} — BİLGİ KARTI**\n\n"
             f"{metin}...\n\n"
@@ -58,7 +55,6 @@ async def mesaj_yakala(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mesaj = update.message.text.strip()
     
-    # "@profesör balık_adı" veya "@profesor balık_adı" tetiklenmesi
     if mesaj.lower().startswith("@profesör") or mesaj.lower().startswith("@profesor"):
         parcalar = mesaj.split(maxsplit=1)
         if len(parcalar) < 2:
@@ -71,7 +67,28 @@ async def mesaj_yakala(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cevap = bilgi_servisi_ara(balik_adi)
         await update.message.reply_text(cevap, parse_mode="Markdown", disable_web_page_preview=True)
 
-if __name__ == '__main__':
+# Render Web Service'i kandırmak için sahte HTTP sunucusu
+async def handle_ping(request):
+    return web.Response(text="Bot Aktif!")
+
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), mesaj_yakala))
-    app.run_polling()
+    
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    # Dummy Web Port Dinleyici
+    server = web.Server(handle_ping)
+    runner = web.ServerRunner(server)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+
+    # Botun sürekli çalışır durumda kalmasını sağlama
+    await asyncio.Event().wait()
+
+if __name__ == '__main__':
+    asyncio.run(main())
