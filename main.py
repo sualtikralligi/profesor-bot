@@ -7,8 +7,9 @@ import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask
-from telegram import ParseMode
-from telegram.ext import Updater, MessageHandler, Filters, CommandHandler
+from telegram import Update
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TRIGGER_WORDS = ["@profesör", "@profesor"]
@@ -135,7 +136,7 @@ def format_reply(info: dict) -> str:
             comment = comment[:500].rsplit(" ", 1)[0] + "…"
         lines.append(f"\n_{comment}_")
 
-    lines.append(f"\n💡 *Profesör Bilgi Sistemi*")
+    lines.append("\n💡 *Profesör Bilgi Sistemi*")
     return "\n".join(lines)
 
 
@@ -151,7 +152,7 @@ def extract_fish_name(text: str):
     return None
 
 
-def handle_message(update, context):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     if not message or not message.text:
         return
@@ -160,11 +161,11 @@ def handle_message(update, context):
     if not fish_name:
         return
 
-    context.bot.send_chat_action(chat_id=message.chat_id, action="typing")
+    await context.bot.send_chat_action(chat_id=message.chat_id, action="typing")
 
     url = find_fish_url(fish_name)
     if not url:
-        message.reply_text(
+        await message.reply_text(
             f"❌ Veritabanımızda “{fish_name}” ile eşleşen bir kayıt bulunamadı.\n"
             f"İsmi kontrol edip tekrar dener misin? (Örn: @profesör betta splendens)"
         )
@@ -172,27 +173,27 @@ def handle_message(update, context):
 
     info = parse_fish_page(url)
     if not info:
-        message.reply_text("⚠️ Kayda ulaşıldı ama bilgi kartı oluşturulurken bir sorun oldu, tekrar dener misin?")
+        await message.reply_text("⚠️ Kayda ulaşıldı ama bilgi kartı oluşturulurken bir sorun oldu, tekrar dener misin?")
         return
 
     reply_text = format_reply(info)
 
     try:
         if info.get("image_url"):
-            message.reply_photo(
+            await message.reply_photo(
                 photo=info["image_url"],
                 caption=reply_text,
                 parse_mode=ParseMode.MARKDOWN,
             )
         else:
-            message.reply_text(reply_text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+            await message.reply_text(reply_text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
     except Exception as e:
         logger.warning("Yanıt gönderilemedi, düz metne düşülüyor: %s", e)
-        message.reply_text(reply_text, disable_web_page_preview=True)
+        await message.reply_text(reply_text, disable_web_page_preview=True)
 
 
-def start_command(update, context):
-    update.effective_message.reply_text(
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.effective_message.reply_text(
         "Merhaba! Ben Profesör 🐠\n"
         "Gruba `@profesör <canlı adı>` yazarsan sana veritabanımızdan bilgi kartı getiririm.\n"
         "Örnek: @profesör neon tetra"
@@ -218,15 +219,12 @@ def main():
 
     threading.Thread(target=run_flask, daemon=True).start()
 
-    updater = Updater(token=BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start_command))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot polling başlatılıyor...")
-    updater.start_polling()
-    updater.idle()
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
