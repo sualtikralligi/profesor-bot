@@ -37,7 +37,7 @@ FIELD_LABELS = {
     "Kendi Türlerine Davranışı": "Kendi Türüne Davranışı",
     "Yüzme Seviyesi": "Yüzme Seviyesi",
     "Sıcaklık": "Sıcaklık",
-    "Maks Fazla Büyüdüğü Boy": "En Fazla Büyüdüğü Boy",
+    "En Fazla Büyüdüğü Boy": "En Fazla Büyüdüğü Boy",
     "En Az Akvaryum Hacmi": "Min. Akvaryum Hacmi",
     "Su Sertliği": "Su Sertliği",
     "pH": "pH",
