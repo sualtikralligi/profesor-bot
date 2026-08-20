@@ -12,7 +12,6 @@ from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-TRIGGER_WORDS = ["@profesör", "@profesor"]
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -140,16 +139,22 @@ def format_reply(info: dict) -> str:
     return "\n".join(lines)
 
 
-def extract_fish_name(text: str):
-    lowered = text.lower()
-    for trigger in TRIGGER_WORDS:
-        idx = lowered.find(trigger)
-        if idx != -1:
-            after = text[idx + len(trigger):].strip()
-            after = after.lstrip(":,-").strip()
-            if after:
-                return after
-    return None
+def extract_fish_name(text: str, bot_username: str = None):
+    # Eğer metinde @profesör, @profesor veya botun kendi etiketleri varsa temizle
+    clean_text = text
+
+    # Botun kullanıcı adını temizle (Örn: @Profesor_Akvarist_bot)
+    if bot_username:
+        clean_text = re.sub(rf"@{re.escape(bot_username)}", "", clean_text, flags=re.IGNORECASE)
+
+    # Genel tetikleyicileri ve her türlü @kullanici_adi etiketini temizle
+    clean_text = re.sub(r"@profesö[rr]|@profeso[rr]", "", clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r"@[A-Za-z0-9_]+", "", clean_text)
+
+    # Başındaki/sonundaki özel karakterleri ve boşlukları temizle
+    clean_text = clean_text.strip(" :,-_").strip()
+
+    return clean_text if clean_text else None
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -157,7 +162,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.text:
         return
 
-    fish_name = extract_fish_name(message.text)
+    # Botun kullanıcı adını al
+    bot_username = context.bot.username if context.bot else None
+
+    # Grup mesajı ise ve bota hitap edilmiyorsa (etiketlenmediyse) işlem yapma
+    if message.chat.type in ["group", "supergroup"]:
+        is_mentioned = False
+        if bot_username and f"@{bot_username.lower()}" in message.text.lower():
+            is_mentioned = True
+        elif "@profesör" in message.text.lower() or "@profesor" in message.text.lower():
+            is_mentioned = True
+        
+        if not is_mentioned:
+            return
+
+    fish_name = extract_fish_name(message.text, bot_username)
     if not fish_name:
         return
 
@@ -167,7 +186,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not url:
         await message.reply_text(
             f"❌ Veritabanımızda “{fish_name}” ile eşleşen bir kayıt bulunamadı.\n"
-            f"İsmi kontrol edip tekrar dener misin? (Örn: @profesör betta splendens)"
+            f"İsmi kontrol edip tekrar dener misin? (Örn: @profesör betta)"
         )
         return
 
