@@ -19,9 +19,8 @@ HEADERS = {
     "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
 }
 
-# Taranacak Ana Kategori Linkleri
 CATEGORY_URLS = [
-     # Tatlı Su Kategorileri
+    # Tatlı Su Kategorileri
     "https://www.akvaryum.com/malawi_cichlidleri_kategorisi_3.asp",
     "https://www.akvaryum.com/tanganyika_cichlidleri_kategorisi_2.asp",
     "https://www.akvaryum.com/victoria_cichlidleri_kategorisi_5.asp",
@@ -36,11 +35,9 @@ CATEGORY_URLS = [
     "https://www.akvaryum.com/gokkusaklari_kategorisi_11.asp",
     "https://www.akvaryum.com/omurgasizlar_kategorisi_8.asp",
     "https://www.akvaryum.com/diğer_tatli_su_canlilari_kategorisi_12.asp",
-    # Bitkiler
+    # Bitkiler & Deniz & Diğer
     "https://www.akvaryum.com/Bitkiler/",
-    # Deniz Canlıları
     "https://www.akvaryum.com/Deniz/",
-    # Sürüngenler & Hastalıklar
     "https://www.akvaryum.com/surungenler_kategorisi_35.asp",
     "https://www.akvaryum.com/hastaliklar_kategorisi_23.asp"
 ]
@@ -74,6 +71,8 @@ def find_fish_url_direct(fish_name: str):
     query = fish_name.lower().strip()
     words = query.split()
 
+    candidates = []
+
     for cat_url in CATEGORY_URLS:
         try:
             resp = requests.get(cat_url, headers=HEADERS, timeout=8)
@@ -88,12 +87,20 @@ def find_fish_url_direct(fish_name: str):
                 href = a["href"]
 
                 if text and all(w in text for w in words):
-                    if href.endswith(".asp") or "/Tatlisu/" in href or "/Deniz/" in href or "/Bitkiler/" in href:
+                    if href.endswith(".asp") and ("kategorisi" not in href):
                         if not href.startswith("http"):
                             href = urllib.parse.urljoin("https://www.akvaryum.com/", href)
-                        return href
+                        
+                        if text == query:
+                            return href
+
+                        candidates.append((len(text), href))
         except Exception as e:
             logger.warning("Kategori taranırken hata (%s): %s", cat_url, e)
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0])
+        return candidates[0][1]
 
     return None
 
@@ -119,30 +126,27 @@ def parse_fish_page(url: str):
             text = block.get_text(" ", strip=True)
             if text.startswith(label + ":") or text.startswith(label + " :"):
                 value = text.split(":", 1)[1].strip()
-                if value and len(value) < 200:
+                if value and len(value) < 500:
                     data[label] = value
                 break
 
-    comment = None
-    for block in page_text_blocks:
-        text = block.get_text(" ", strip=True)
-        if text.startswith("Genel Yorum:") or text.startswith("Açıklama:"):
-            comment = text.split(":", 1)[1].strip()
+    image_url = None
+    for img in soup.find_all("img", src=True):
+        src = img["src"]
+        if any(ignored in src.lower() for ignored in ["logo", "banner", "icon", "reklam", "butongm"]):
+            continue
+        if any(target in src.lower() for target in ["foto_arsiv", "veri_resimler", "arsiv", "resimler"]):
+            image_url = urllib.parse.urljoin(url, src)
             break
 
-    image_url = None
-    og_image = soup.find("meta", property="og:image")
-    if og_image and og_image.get("content"):
-        image_url = og_image["content"]
-    else:
-        img_tag = soup.find("img", src=re.compile(r"foto_arsiv|veri_resimler|resimler"))
-        if img_tag and img_tag.get("src"):
-            image_url = urllib.parse.urljoin(url, img_tag["src"])
+    if not image_url:
+        og_image = soup.find("meta", property="og:image")
+        if og_image and og_image.get("content") and "logo" not in og_image["content"].lower():
+            image_url = og_image["content"]
 
     return {
         "title": title,
         "data": data,
-        "comment": comment,
         "image_url": image_url,
         "source_url": url,
     }
@@ -153,13 +157,10 @@ def format_reply(info: dict) -> str:
 
     for label, display_name in FIELD_LABELS.items():
         if label in info["data"]:
-            lines.append(f"*{display_name}:* {info['data'][label]}")
-
-    if info.get("comment"):
-        comment = info["comment"]
-        if len(comment) > 400:
-            comment = comment[:400].rsplit(" ", 1)[0] + "…"
-        lines.append(f"\n_{comment}_")
+            value = info["data"][label]
+            if label == "Genel Yorum" and len(value) > 400:
+                value = value[:400].rsplit(" ", 1)[0] + "…"
+            lines.append(f"*{display_name}:* {value}")
 
     lines.append("\n💡 *Profesör Bilgi Sistemi*")
     return "\n".join(lines)
