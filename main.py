@@ -30,7 +30,7 @@ CATEGORY_URLS = [
 
 FIELD_LABELS = {
     "Latince Adı": "Latince Adı",
-    "Coğrafi Kökeni": "Coğrafi Kökeni",
+    "Coğrafik Kökeni": "Coğrafi Kökeni",
     "Beslenme Biçimi": "Beslenme",
     "Davranış Biçimi": "Davranışı",
     "Kendi Türlerine Davranışı": "Kendi Türüne Davranışı",
