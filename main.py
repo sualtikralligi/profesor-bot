@@ -14,15 +14,13 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, Comma
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "tr-TR,tr;q=0.9"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
 }
 
 FIELD_LABELS = {
     "Latince Adı": "Latince Adı",
-    "Coğrafi Coğrafik": "Kökeni",
+    "Coğrafik Kökeni": "Kökeni",
     "Beslenme Biçimi": "Beslenme",
     "Davranış Biçimi": "Davranışı",
     "Kendi Türlerine Davranışı": "Kendi Türüne Davranışı",
@@ -42,47 +40,33 @@ logger = logging.getLogger(__name__)
 
 
 def find_fish_url(fish_name: str):
-    # Akvaryum.com arama motoruna doğrudan istek atıyoruz
-    search_url = "https://www.akvaryum.com/Arama/"
+    query = f"site:akvaryum.com {fish_name}"
     
-    # ISO-8859-9 / Windows-1254 Türkçe karakter kodlaması desteği
+    # 1. Yöntem: DuckDuckGo HTML Lite (Cloudflare / Bot engellerini aşmak için)
     try:
-        encoded_keyword = fish_name.encode("windows-1254", errors="ignore")
-    except Exception:
-        encoded_keyword = fish_name.encode("utf-8")
-
-    payload = {
-        "m_Arama": encoded_keyword,
-        "arama_yapti": "1"
-    }
-
-    try:
-        resp = requests.post(search_url, data=payload, headers=HEADERS, timeout=10)
-        resp.encoding = resp.apparent_encoding or "windows-1254"
-        
+        url = "https://lite.duckduckgo.com/lite/"
+        resp = requests.post(url, data={"q": query}, headers=HEADERS, timeout=8)
         soup = BeautifulSoup(resp.text, "html.parser")
         
-        # Sonuçlardaki Tatlı Su Balıkları linkini yakala (tatlisur_X_Y.asp)
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if "tatlisur_" in href and href.endswith(".asp"):
-                if not href.startswith("http"):
-                    href = urllib.parse.urljoin("https://www.akvaryum.com/", href)
+            if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
                 return href
     except Exception as e:
-        logger.warning("Akvaryum.com doğrudan arama başarısız: %s", e)
+        logger.warning("DuckDuckGo Lite araması başarısız: %s", e)
 
-    # Yedek yöntem: Google HTML Arama
+    # 2. Yöntem: Bing HTML Arama
     try:
-        g_url = f"https://html.duckduckgo.com/html/?q=site:akvaryum.com+{urllib.parse.quote(fish_name)}"
-        resp = requests.get(g_url, headers=HEADERS, timeout=8)
+        bing_url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
+        resp = requests.get(bing_url, headers=HEADERS, timeout=8)
         soup = BeautifulSoup(resp.text, "html.parser")
+        
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if "akvaryum.com" in href and "tatlisur_" in href:
+            if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
                 return href
     except Exception as e:
-        logger.warning("Yedek arama başarısız: %s", e)
+        logger.warning("Bing araması başarısız: %s", e)
 
     return None
 
@@ -108,7 +92,7 @@ def parse_fish_page(url: str):
             text = block.get_text(" ", strip=True)
             if text.startswith(label + ":") or text.startswith(label + " :"):
                 value = text.split(":", 1)[1].strip()
-                if value and len(value) < 150:
+                if value and len(value) < 200:
                     data[label] = value
                 break
 
@@ -195,7 +179,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         example_handle = f"@{bot_username}" if bot_username else "@profesör"
         await message.reply_text(
             f"❌ Veritabanımızda “{fish_name}” ile eşleşen bir kayıt bulunamadı.\n"
-            f"İsmi kontrol edip tekrar dener misin? (Örn: {example_handle} Türün İsmi )"
+            f"İsmi kontrol edip tekrar dener misin? (Örn: {example_handle} betta)"
         )
         return
 
@@ -221,10 +205,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot_username = context.bot.username if context.bot else "profesör"
     await update.effective_message.reply_text(
         "Merhaba! Ben Profesör 🐠\n"
-        "Gruba `@profesör <canlı adı>` yazarsan sana veritabanımızdan bilgi kartı getiririm.\n"
-        "Örnek: @profesör neon tetra"
+        f"Gruba `@{bot_username} <canlı adı>` yazarsan sana veritabanımızdan bilgi kartı getiririm.\n"
+        f"Örnek: @{bot_username} neon tetra"
     )
 
 
