@@ -4,8 +4,6 @@ import requests
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-from aiohttp import web
-import asyncio
 
 # Telegram Bot Token
 TOKEN = "7920321173:AAF2AE2DIbsFU7R4mVRwBC8jrpwLnhkNgXI"
@@ -68,32 +66,7 @@ async def mesaj_yakala(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cevap = bilgi_servisi_ara(balik_adi)
         await update.message.reply_text(cevap, parse_mode="Markdown", disable_web_page_preview=True)
 
-async def handle_ping(request):
-    return web.Response(text="Bot Aktif ve Calisiyor!")
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-
-async def main():
-    # Web sunucusunu başlat (Render için gerekli)
-    await start_web_server()
-    
-    # Telegram botunu başlat
+if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), mesaj_yakala))
-    
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    
-    # Çalışır durumda tut
-    await asyncio.Event().wait()
-
-if __name__ == '__main__':
-    asyncio.run(main())
+    app.run_polling(drop_pending_updates=True)
