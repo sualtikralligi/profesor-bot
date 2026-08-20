@@ -192,9 +192,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = find_fish_url(fish_name)
     if not url:
+        example_handle = f"@{bot_username}" if bot_username else "@profesör"
         await message.reply_text(
             f"❌ Veritabanımızda “{fish_name}” ile eşleşen bir kayıt bulunamadı.\n"
-            f"İsmi kontrol edip tekrar dener misin? (Örn: @profesör betta)"
+            f"İsmi kontrol edip tekrar dener misin? (Örn: {example_handle} Türün İsmi )"
         )
         return
 
