@@ -1,72 +1,237 @@
 import os
+import re
 import logging
+import threading
+import urllib.parse
+
 import requests
 from bs4 import BeautifulSoup
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from flask import Flask
+from telegram import ParseMode
+from telegram.ext import Updater, MessageHandler, Filters, CommandHandler
 
-# Telegram Bot Token
-TOKEN = "7920321173:AAF2AE2DIbsFU7R4mVRwBC8jrpwLnhkNgXI"
+# --------------------------------------------------------------------------
+# AYARLAR
+# --------------------------------------------------------------------------
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Render'da Environment Variable olarak eklenecek
+TRIGGER_WORDS = ["@profesör", "@profesor"]
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+}
+
+FIELD_LABELS = {
+    "Latince Adı": "Latince Adı",
+    "Coğrafik Kökeni": "Kökeni",
+    "Beslenme Biçimi": "Beslenme",
+    "Davranış Biçimi": "Davranışı",
+    "Kendi Türlerine Davranışı": "Kendi Türüne Davranışı",
+    "Yüzme Seviyesi": "Yüzme Seviyesi",
+    "Sıcaklık": "Sıcaklık",
+    "En Fazla Büyüdüğü Boy": "Maks. Boy",
+    "En Az Akvaryum Hacmi": "Min. Akvaryum Hacmi",
+    "Su Sertliği": "Su Sertliği",
+    "pH": "pH",
+    "Zorluk Seviyesi": "Zorluk Seviyesi",
+}
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
-def bilgi_servisi_ara(balik_adi):
+
+def find_fish_url(fish_name: str):
+    query = f"site:akvaryum.com {fish_name}"
     try:
-        url = f"https://www.akvaryum.com/Arama/?q={balik_adi}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        if response.status_code != 200:
-            return "⚠️ Sunucuya şu an ulaşılamıyor, lütfen kısa bir süre sonra tekrar deneyin."
-
-        soup = BeautifulSoup(response.text, 'html.parser')
-        a_tag = soup.find('a', href=lambda href: href and 'asp' in href)
-        
-        if not a_tag:
-            return f"❌ Veritabanımızda **{balik_adi}** ile ilgili doğrudan bir bilgi kaydı bulunamadı. Lütfen ismi kontrol edip tekrar deneyin."
-        
-        detay_url = "https://www.akvaryum.com/" + a_tag['href']
-        detay_res = requests.get(detay_url, headers=headers, timeout=10)
-        detay_soup = BeautifulSoup(detay_res.text, 'html.parser')
-        
-        icerik = detay_soup.find('div', id='icerik') or detay_soup.find('body')
-        
-        if not icerik:
-            return "❌ İlgili türe ait bilgi kartı oluşturulamadı."
-
-        metin = icerik.get_text(separator=' ', strip=True)[:650]
-        
-        return (
-            f"📖 **{balik_adi.upper()} — BİLGİ KARTI**\n\n"
-            f"{metin}...\n\n"
-            f"💡 *İzmir Akvaryum Hobicileri Özel Bilgi Servisi*"
+        resp = requests.post(
+            "https://html.duckduckgo.com/html/",
+            data={"q": query},
+            headers=HEADERS,
+            timeout=10,
         )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning("DuckDuckGo isteği başarısız: %s", e)
+        return None
 
-    except Exception as e:
-        return "⚠️ Sistemde geçici bir aksama yaşandı. Lütfen daha sonra tekrar deneyin."
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for a in soup.select("a.result__a"):
+        href = a.get("href", "")
+        if "uddg=" in href:
+            parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+            href = parsed.get("uddg", [href])[0]
 
-async def mesaj_yakala(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
+        if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
+            return href
+
+    return None
+
+
+def parse_fish_page(url: str):
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning("Sayfa çekilemedi: %s", e)
+        return None
+
+    resp.encoding = resp.apparent_encoding or "windows-1254"
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    title_tag = soup.find("h1") or soup.find("title")
+    title = title_tag.get_text(strip=True) if title_tag else fish_name_fallback(url)
+
+    page_text_blocks = soup.find_all(["li", "p", "div", "span", "b", "strong"])
+    data = {}
+    for label in FIELD_LABELS:
+        for block in page_text_blocks:
+            text = block.get_text(" ", strip=True)
+            if text.startswith(label + ":") or text.startswith(label + " :"):
+                value = text.split(":", 1)[1].strip()
+                if value:
+                    data[label] = value
+                break
+
+    comment = None
+    for block in page_text_blocks:
+        text = block.get_text(" ", strip=True)
+        if text.startswith("Genel Yorum:"):
+            comment = text.split(":", 1)[1].strip()
+            break
+
+    image_url = None
+    og_image = soup.find("meta", property="og:image")
+    if og_image and og_image.get("content"):
+        image_url = og_image["content"]
+    else:
+        img_tag = soup.find("img", src=re.compile(r"foto_arsiv"))
+        if img_tag and img_tag.get("src"):
+            image_url = urllib.parse.urljoin(url, img_tag["src"])
+
+    return {
+        "title": title,
+        "data": data,
+        "comment": comment,
+        "image_url": image_url,
+        "source_url": url,
+    }
+
+
+def fish_name_fallback(url: str) -> str:
+    slug = url.rstrip("/").split("/")[-1]
+    slug = re.sub(r"_tatlisur_\d+_\d+\.asp$", "", slug)
+    return slug.replace("_", " ").title()
+
+
+def format_reply(info: dict) -> str:
+    lines = [f"🐠 *{info['title']}*"]
+
+    for label, display_name in FIELD_LABELS.items():
+        if label in info["data"]:
+            lines.append(f"*{display_name}:* {info['data'][label]}")
+
+    if info.get("comment"):
+        comment = info["comment"]
+        if len(comment) > 500:
+            comment = comment[:500].rsplit(" ", 1)[0] + "…"
+        lines.append(f"\n_{comment}_")
+
+    lines.append(f"\n🔗 [Kaynak: Akvaryum.com]({info['source_url']})")
+    return "\n".join(lines)
+
+
+def extract_fish_name(text: str):
+    lowered = text.lower()
+    for trigger in TRIGGER_WORDS:
+        idx = lowered.find(trigger)
+        if idx != -1:
+            after = text[idx + len(trigger):].strip()
+            after = after.lstrip(":,-").strip()
+            if after:
+                return after
+    return None
+
+
+def handle_message(update, context):
+    message = update.effective_message
+    if not message or not message.text:
         return
 
-    mesaj = update.message.text.strip()
-    
-    if mesaj.lower().startswith("@profesör") or mesaj.lower().startswith("@profesor"):
-        parcalar = mesaj.split(maxsplit=1)
-        if len(parcalar) < 2:
-            await update.message.reply_text("Lütfen bilgi almak istediğin canlı adını girin. Örn: `@profesör betta`", parse_mode="Markdown")
-            return
+    fish_name = extract_fish_name(message.text)
+    if not fish_name:
+        return
 
-        balik_adi = parcalar[1]
-        await update.message.reply_text(f"🔍 **{balik_adi}** bilgileri sistemden sorgulanıyor...")
-        
-        cevap = bilgi_servisi_ara(balik_adi)
-        await update.message.reply_text(cevap, parse_mode="Markdown", disable_web_page_preview=True)
+    context.bot.send_chat_action(chat_id=message.chat_id, action="typing")
 
-if __name__ == '__main__':
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), mesaj_yakala))
-    app.run_polling(drop_pending_updates=True)
+    url = find_fish_url(fish_name)
+    if not url:
+        message.reply_text(
+            f"“{fish_name}” için akvaryum.com üzerinde bir sonuç bulamadım. "
+            f"İsmi kontrol edip tekrar dener misin? (Örn: @profesör betta splendens)"
+        )
+        return
+
+    info = parse_fish_page(url)
+    if not info:
+        message.reply_text("Sayfaya ulaştım ama bilgileri okurken bir sorun oldu, tekrar dener misin?")
+        return
+
+    reply_text = format_reply(info)
+
+    try:
+        if info.get("image_url"):
+            message.reply_photo(
+                photo=info["image_url"],
+                caption=reply_text,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            message.reply_text(reply_text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+    except Exception as e:
+        logger.warning("Yanıt gönderilemedi, düz metne düşülüyor: %s", e)
+        message.reply_text(reply_text, disable_web_page_preview=True)
+
+
+def start_command(update, context):
+    update.effective_message.reply_text(
+        "Merhaba! Ben Profesör 🐠\n"
+        "Gruba `@profesör <balık adı>` yazarsan sana akvaryum.com'dan bilgi getiririm.\n"
+        "Örnek: @profesör neon tetra"
+    )
+
+
+flask_app = Flask(__name__)
+
+
+@flask_app.route("/")
+def health_check():
+    return "Profesör bot ayakta 🐠", 200
+
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
+
+
+def main():
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN ortam değişkeni tanımlı değil!")
+
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    updater = Updater(token=BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start_command))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+
+    logger.info("Bot polling başlatılıyor...")
+    updater.start_polling()
+    updater.idle()
+
+
+if __name__ == "__main__":
+    main()
