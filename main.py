@@ -10,11 +10,7 @@ from flask import Flask
 from telegram import ParseMode
 from telegram.ext import Updater, MessageHandler, Filters, CommandHandler
 
-# --------------------------------------------------------------------------
-# AYARLAR
-# --------------------------------------------------------------------------
-
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Render'da Environment Variable olarak eklenecek
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TRIGGER_WORDS = ["@profesör", "@profesor"]
 
 HEADERS = {
@@ -54,7 +50,7 @@ def find_fish_url(fish_name: str):
         )
         resp.raise_for_status()
     except requests.RequestException as e:
-        logger.warning("DuckDuckGo isteği başarısız: %s", e)
+        logger.warning("Arama isteği başarısız: %s", e)
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -75,7 +71,7 @@ def parse_fish_page(url: str):
         resp = requests.get(url, headers=HEADERS, timeout=10)
         resp.raise_for_status()
     except requests.RequestException as e:
-        logger.warning("Sayfa çekilemedi: %s", e)
+        logger.warning("Kayıt çekilemedi: %s", e)
         return None
 
     resp.encoding = resp.apparent_encoding or "windows-1254"
@@ -127,7 +123,7 @@ def fish_name_fallback(url: str) -> str:
 
 
 def format_reply(info: dict) -> str:
-    lines = [f"🐠 *{info['title']}*"]
+    lines = [f"📖 *{info['title'].upper()} — BİLGİ KARTI*"]
 
     for label, display_name in FIELD_LABELS.items():
         if label in info["data"]:
@@ -139,7 +135,7 @@ def format_reply(info: dict) -> str:
             comment = comment[:500].rsplit(" ", 1)[0] + "…"
         lines.append(f"\n_{comment}_")
 
-    lines.append(f"\n🔗 [Kaynak: Akvaryum.com]({info['source_url']})")
+    lines.append(f"\n💡 *Profesör Bilgi Sistemi*")
     return "\n".join(lines)
 
 
@@ -169,14 +165,14 @@ def handle_message(update, context):
     url = find_fish_url(fish_name)
     if not url:
         message.reply_text(
-            f"“{fish_name}” için akvaryum.com üzerinde bir sonuç bulamadım. "
+            f"❌ Veritabanımızda “{fish_name}” ile eşleşen bir kayıt bulunamadı.\n"
             f"İsmi kontrol edip tekrar dener misin? (Örn: @profesör betta splendens)"
         )
         return
 
     info = parse_fish_page(url)
     if not info:
-        message.reply_text("Sayfaya ulaştım ama bilgileri okurken bir sorun oldu, tekrar dener misin?")
+        message.reply_text("⚠️ Kayda ulaşıldı ama bilgi kartı oluşturulurken bir sorun oldu, tekrar dener misin?")
         return
 
     reply_text = format_reply(info)
@@ -198,7 +194,7 @@ def handle_message(update, context):
 def start_command(update, context):
     update.effective_message.reply_text(
         "Merhaba! Ben Profesör 🐠\n"
-        "Gruba `@profesör <balık adı>` yazarsan sana akvaryum.com'dan bilgi getiririm.\n"
+        "Gruba `@profesör <canlı adı>` yazarsan sana veritabanımızdan bilgi kartı getiririm.\n"
         "Örnek: @profesör neon tetra"
     )
 
