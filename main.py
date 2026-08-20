@@ -30,8 +30,8 @@ CATEGORY_URLS = [
 
 FIELD_LABELS = {
     "Latince Adı": "Latince Adı",
-    "Coğrafi Kökeni": "Kökeni",
-    "Beslenme Kökeni": "Beslenme",
+    "Coğrafi Kökeni": "Coğrafi Kökeni",
+    "Beslenme Biçimi": "Beslenme",
     "Davranış Biçimi": "Davranışı",
     "Kendi Türlerine Davranışı": "Kendi Türüne Davranışı",
     "Yüzme Seviyesi": "Yüzme Seviyesi",
@@ -50,7 +50,6 @@ logger = logging.getLogger(__name__)
 
 
 def find_fish_url_direct(fish_name: str):
-    """Verilen kategori sayfalarını doğrudan tarayarak aranan canlıyı bulur."""
     query = fish_name.lower().strip()
     words = query.split()
 
@@ -67,7 +66,6 @@ def find_fish_url_direct(fish_name: str):
                 text = a.get_text(" ", strip=True).lower()
                 href = a["href"]
 
-                # Eğer aranan kelimelerin tamamı link metninde geçiyorsa eşleşmiştir
                 if text and all(w in text for w in words):
                     if href.endswith(".asp") or "/Tatlisu/" in href or "/Deniz/" in href or "/Bitkiler/" in href:
                         if not href.startswith("http"):
@@ -187,8 +185,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         example_handle = f"@{bot_username}" if bot_username else "@profesör"
         await message.reply_text(
             f"❌ Veritabanımızda “{fish_name}” ile eşleşen bir kayıt bulunamadı.\n"
-            f"İsmi kontrol edip tekrar dener misin? (Örn: {example_handle} Türün ismi)"
-    return        return
+            f"İsmi kontrol edip tekrar dener misin? (Örn: {example_handle} Türün İsmi)"
+        )
+        return
 
     info = parse_fish_page(url)
     if not info:
