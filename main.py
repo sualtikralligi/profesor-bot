@@ -15,7 +15,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
 }
 
 FIELD_LABELS = {
@@ -40,28 +41,36 @@ logger = logging.getLogger(__name__)
 
 
 def find_fish_url(fish_name: str):
-    query = f"site:akvaryum.com {fish_name}"
+    # 1. Yöntem: Google Arama
+    encoded_query = urllib.parse.quote(f"site:akvaryum.com {fish_name}")
+    google_url = f"https://www.google.com/search?q={encoded_query}&hl=tr"
+    
     try:
-        resp = requests.post(
-            "https://html.duckduckgo.com/html/",
-            data={"q": query},
-            headers=HEADERS,
-            timeout=10,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        logger.warning("Arama isteği başarısız: %s", e)
-        return None
+        resp = requests.get(google_url, headers=HEADERS, timeout=8)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                # Google yönlendirme linklerini veya doğrudan linkleri kontrol et
+                if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
+                    if href.startswith("/url?q="):
+                        href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("q", [href])[0]
+                    return href
+    except Exception as e:
+        logger.warning("Google araması başarısız: %s", e)
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for a in soup.select("a.result__a"):
-        href = a.get("href", "")
-        if "uddg=" in href:
-            parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
-            href = parsed.get("uddg", [href])[0]
-
-        if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
-            return href
+    # 2. Yöntem: Bing Arama (Yedek)
+    bing_url = f"https://www.bing.com/search?q={encoded_query}"
+    try:
+        resp = requests.get(bing_url, headers=HEADERS, timeout=8)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
+                    return href
+    except Exception as e:
+        logger.warning("Bing araması başarısız: %s", e)
 
     return None
 
@@ -80,7 +89,7 @@ def parse_fish_page(url: str):
     title_tag = soup.find("h1") or soup.find("title")
     title = title_tag.get_text(strip=True) if title_tag else fish_name_fallback(url)
 
-    page_text_blocks = soup.find_all(["li", "p", "div", "span", "b", "strong"])
+    page_text_blocks = soup.find_all(["li", "p", "div", "span", "b", "strong", "td"])
     data = {}
     for label in FIELD_LABELS:
         for block in page_text_blocks:
@@ -140,18 +149,13 @@ def format_reply(info: dict) -> str:
 
 
 def extract_fish_name(text: str, bot_username: str = None):
-    # Eğer metinde @profesör, @profesor veya botun kendi etiketleri varsa temizle
     clean_text = text
 
-    # Botun kullanıcı adını temizle (Örn: @Profesor_Akvarist_bot)
     if bot_username:
         clean_text = re.sub(rf"@{re.escape(bot_username)}", "", clean_text, flags=re.IGNORECASE)
 
-    # Genel tetikleyicileri ve her türlü @kullanici_adi etiketini temizle
     clean_text = re.sub(r"@profesö[rr]|@profeso[rr]", "", clean_text, flags=re.IGNORECASE)
     clean_text = re.sub(r"@[A-Za-z0-9_]+", "", clean_text)
-
-    # Başındaki/sonundaki özel karakterleri ve boşlukları temizle
     clean_text = clean_text.strip(" :,-_").strip()
 
     return clean_text if clean_text else None
@@ -162,10 +166,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message or not message.text:
         return
 
-    # Botun kullanıcı adını al
     bot_username = context.bot.username if context.bot else None
 
-    # Grup mesajı ise ve bota hitap edilmiyorsa (etiketlenmediyse) işlem yapma
     if message.chat.type in ["group", "supergroup"]:
         is_mentioned = False
         if bot_username and f"@{bot_username.lower()}" in message.text.lower():
