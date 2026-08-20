@@ -14,13 +14,14 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, Comma
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "tr-TR,tr;q=0.9",
 }
 
 FIELD_LABELS = {
     "Latince Adı": "Latince Adı",
-    "Coğrafik Kökeni": "Kökeni",
+    "Coğrafi Kökeni": "Kökeni",
     "Beslenme Biçimi": "Beslenme",
     "Davranış Biçimi": "Davranışı",
     "Kendi Türlerine Davranışı": "Kendi Türüne Davranışı",
@@ -40,33 +41,41 @@ logger = logging.getLogger(__name__)
 
 
 def find_fish_url(fish_name: str):
-    query = f"site:akvaryum.com {fish_name}"
+    # DuckDuckGo HTML API Arama Yöntemi (Server Engellerini Aşar)
+    ddg_url = "https://html.duckduckgo.com/html/"
+    params = {"q": f"site:akvaryum.com {fish_name}"}
     
-    # 1. Yöntem: DuckDuckGo HTML Lite (Cloudflare / Bot engellerini aşmak için)
     try:
-        url = "https://lite.duckduckgo.com/lite/"
-        resp = requests.post(url, data={"q": query}, headers=HEADERS, timeout=8)
+        resp = requests.post(ddg_url, data=params, headers=HEADERS, timeout=8)
         soup = BeautifulSoup(resp.text, "html.parser")
         
-        for a in soup.find_all("a", href=True):
+        for a in soup.find_all("a", class_="result__url", href=True):
             href = a["href"]
-            if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
+            # DuckDuckGo yönlendirme linkini çözer
+            if "uddg=" in href:
+                parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+                if "uddg" in parsed:
+                    href = parsed["uddg"][0]
+            
+            if "akvaryum.com" in href and "tatlisur_" in href and href.endswith(".asp"):
                 return href
     except Exception as e:
-        logger.warning("DuckDuckGo Lite araması başarısız: %s", e)
+        logger.warning("DuckDuckGo araması hata verdi: %s", e)
 
-    # 2. Yöntem: Bing HTML Arama
+    # Google / HTML Yedek İstek Yöntemi
     try:
-        bing_url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
-        resp = requests.get(bing_url, headers=HEADERS, timeout=8)
+        search_url = f"https://www.google.com/search?q=site:akvaryum.com+{urllib.parse.quote(fish_name)}"
+        resp = requests.get(search_url, headers=HEADERS, timeout=8)
         soup = BeautifulSoup(resp.text, "html.parser")
         
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
-                return href
+            if "/url?q=" in href:
+                href = href.split("/url?q=")[1].split("&")[0]
+            if "akvaryum.com" in href and "tatlisur_" in href and href.endswith(".asp"):
+                return urllib.parse.unquote(href)
     except Exception as e:
-        logger.warning("Bing araması başarısız: %s", e)
+        logger.warning("Google yedek arama hata verdi: %s", e)
 
     return None
 
@@ -179,7 +188,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         example_handle = f"@{bot_username}" if bot_username else "@profesör"
         await message.reply_text(
             f"❌ Veritabanımızda “{fish_name}” ile eşleşen bir kayıt bulunamadı.\n"
-            f"İsmi kontrol edip tekrar dener misin? (Örn: {example_handle} betta)"
+            f"İsmi kontrol edip tekrar dener misin? (Örn: {example_handle} Türün Kökenifikni)"
         )
         return
 
