@@ -21,7 +21,7 @@ HEADERS = {
 
 # Taranacak Ana Kategori Linkleri
 CATEGORY_URLS = [
-    "https://www.akvaryum.com/Tatlisu/",
+    "https://www.akvaryum.com/malawi_cichlidleri_kategorisi_3.asp",
     "https://www.akvaryum.com/Deniz/",
     "https://www.akvaryum.com/Bitkiler/",
     "https://www.akvaryum.com/surungenler_kategorisi_35.asp",
