@@ -21,9 +21,26 @@ HEADERS = {
 
 # Taranacak Ana Kategori Linkleri
 CATEGORY_URLS = [
+     # Tatlı Su Kategorileri
     "https://www.akvaryum.com/malawi_cichlidleri_kategorisi_3.asp",
-    "https://www.akvaryum.com/Deniz/",
+    "https://www.akvaryum.com/tanganyika_cichlidleri_kategorisi_2.asp",
+    "https://www.akvaryum.com/victoria_cichlidleri_kategorisi_5.asp",
+    "https://www.akvaryum.com/guney_amerika_cichlidleri_kategorisi_4.asp",
+    "https://www.akvaryum.com/orta_amerika_cichlidleri_kategorisi_88.asp",
+    "https://www.akvaryum.com/canli_doguranlar_kategorisi_5.asp",
+    "https://www.akvaryum.com/characins_(tetra)_kategorisi_10.asp",
+    "https://www.akvaryum.com/cyprinids_(sazansilar)_kategorisi_7.asp",
+    "https://www.akvaryum.com/labirentliler_kategorisi_6.asp",
+    "https://www.akvaryum.com/kedibaliklari_kategorisi_58.asp",
+    "https://www.akvaryum.com/killifish_kategorisi_9.asp",
+    "https://www.akvaryum.com/gokkusaklari_kategorisi_11.asp",
+    "https://www.akvaryum.com/omurgasizlar_kategorisi_8.asp",
+    "https://www.akvaryum.com/diğer_tatli_su_canlilari_kategorisi_12.asp",
+    # Bitkiler
     "https://www.akvaryum.com/Bitkiler/",
+    # Deniz Canlıları
+    "https://www.akvaryum.com/Deniz/",
+    # Sürüngenler & Hastalıklar
     "https://www.akvaryum.com/surungenler_kategorisi_35.asp",
     "https://www.akvaryum.com/hastaliklar_kategorisi_23.asp"
 ]
