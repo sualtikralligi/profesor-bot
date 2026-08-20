@@ -16,12 +16,13 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-    "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "tr-TR,tr;q=0.9"
 }
 
 FIELD_LABELS = {
     "Latince Adı": "Latince Adı",
-    "Coğrafik Kökeni": "Kökeni",
+    "Coğrafi Coğrafik": "Kökeni",
     "Beslenme Biçimi": "Beslenme",
     "Davranış Biçimi": "Davranışı",
     "Kendi Türlerine Davranışı": "Kendi Türüne Davranışı",
@@ -41,36 +42,47 @@ logger = logging.getLogger(__name__)
 
 
 def find_fish_url(fish_name: str):
-    # 1. Yöntem: Google Arama
-    encoded_query = urllib.parse.quote(f"site:akvaryum.com {fish_name}")
-    google_url = f"https://www.google.com/search?q={encoded_query}&hl=tr"
+    # Akvaryum.com arama motoruna doğrudan istek atıyoruz
+    search_url = "https://www.akvaryum.com/Arama/"
     
+    # ISO-8859-9 / Windows-1254 Türkçe karakter kodlaması desteği
     try:
-        resp = requests.get(google_url, headers=HEADERS, timeout=8)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                # Google yönlendirme linklerini veya doğrudan linkleri kontrol et
-                if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
-                    if href.startswith("/url?q="):
-                        href = urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("q", [href])[0]
-                    return href
-    except Exception as e:
-        logger.warning("Google araması başarısız: %s", e)
+        encoded_keyword = fish_name.encode("windows-1254", errors="ignore")
+    except Exception:
+        encoded_keyword = fish_name.encode("utf-8")
 
-    # 2. Yöntem: Bing Arama (Yedek)
-    bing_url = f"https://www.bing.com/search?q={encoded_query}"
+    payload = {
+        "m_Arama": encoded_keyword,
+        "arama_yapti": "1"
+    }
+
     try:
-        resp = requests.get(bing_url, headers=HEADERS, timeout=8)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                if "akvaryum.com" in href and re.search(r"tatlisur_\d+_\d+\.asp", href):
-                    return href
+        resp = requests.post(search_url, data=payload, headers=HEADERS, timeout=10)
+        resp.encoding = resp.apparent_encoding or "windows-1254"
+        
+        soup = BeautifulSoup(resp.text, "html.parser")
+        
+        # Sonuçlardaki Tatlı Su Balıkları linkini yakala (tatlisur_X_Y.asp)
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "tatlisur_" in href and href.endswith(".asp"):
+                if not href.startswith("http"):
+                    href = urllib.parse.urljoin("https://www.akvaryum.com/", href)
+                return href
     except Exception as e:
-        logger.warning("Bing araması başarısız: %s", e)
+        logger.warning("Akvaryum.com doğrudan arama başarısız: %s", e)
+
+    # Yedek yöntem: Google HTML Arama
+    try:
+        g_url = f"https://html.duckduckgo.com/html/?q=site:akvaryum.com+{urllib.parse.quote(fish_name)}"
+        resp = requests.get(g_url, headers=HEADERS, timeout=8)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "akvaryum.com" in href and "tatlisur_" in href:
+                return href
+    except Exception as e:
+        logger.warning("Yedek arama başarısız: %s", e)
 
     return None
 
@@ -87,16 +99,16 @@ def parse_fish_page(url: str):
     soup = BeautifulSoup(resp.text, "html.parser")
 
     title_tag = soup.find("h1") or soup.find("title")
-    title = title_tag.get_text(strip=True) if title_tag else fish_name_fallback(url)
+    title = title_tag.get_text(strip=True) if title_tag else "Balık Detayı"
 
-    page_text_blocks = soup.find_all(["li", "p", "div", "span", "b", "strong", "td"])
+    page_text_blocks = soup.find_all(["li", "p", "div", "span", "b", "strong", "td", "tr"])
     data = {}
     for label in FIELD_LABELS:
         for block in page_text_blocks:
             text = block.get_text(" ", strip=True)
             if text.startswith(label + ":") or text.startswith(label + " :"):
                 value = text.split(":", 1)[1].strip()
-                if value:
+                if value and len(value) < 150:
                     data[label] = value
                 break
 
@@ -112,7 +124,7 @@ def parse_fish_page(url: str):
     if og_image and og_image.get("content"):
         image_url = og_image["content"]
     else:
-        img_tag = soup.find("img", src=re.compile(r"foto_arsiv"))
+        img_tag = soup.find("img", src=re.compile(r"foto_arsiv|veri_resimler"))
         if img_tag and img_tag.get("src"):
             image_url = urllib.parse.urljoin(url, img_tag["src"])
 
@@ -125,12 +137,6 @@ def parse_fish_page(url: str):
     }
 
 
-def fish_name_fallback(url: str) -> str:
-    slug = url.rstrip("/").split("/")[-1]
-    slug = re.sub(r"_tatlisur_\d+_\d+\.asp$", "", slug)
-    return slug.replace("_", " ").title()
-
-
 def format_reply(info: dict) -> str:
     lines = [f"📖 *{info['title'].upper()} — BİLGİ KARTI*"]
 
@@ -140,8 +146,8 @@ def format_reply(info: dict) -> str:
 
     if info.get("comment"):
         comment = info["comment"]
-        if len(comment) > 500:
-            comment = comment[:500].rsplit(" ", 1)[0] + "…"
+        if len(comment) > 400:
+            comment = comment[:400].rsplit(" ", 1)[0] + "…"
         lines.append(f"\n_{comment}_")
 
     lines.append("\n💡 *Profesör Bilgi Sistemi*")
