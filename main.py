@@ -6,6 +6,7 @@ import urllib.parse
 
 import requests
 from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
 from flask import Flask
 from telegram import Update
 from telegram.constants import ParseMode
@@ -65,6 +66,18 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+
+def fetch_ddg_image(query: str):
+    """DuckDuckGo üzerinden başlığa uygun ilk görseli çeker."""
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.images(f"{query} akvaryum", max_results=1))
+            if results:
+                return results[0]["image"]
+    except Exception as e:
+        logger.warning("DuckDuckGo görsel çekme hatası: %s", e)
+    return None
 
 
 def find_fish_url_direct(fish_name: str):
@@ -130,19 +143,8 @@ def parse_fish_page(url: str):
                     data[label] = value
                 break
 
-    image_url = None
-    for img in soup.find_all("img", src=True):
-        src = img["src"]
-        if any(ignored in src.lower() for ignored in ["logo", "banner", "icon", "reklam", "butongm"]):
-            continue
-        if any(target in src.lower() for target in ["foto_arsiv", "veri_resimler", "arsiv", "resimler"]):
-            image_url = urllib.parse.urljoin(url, src)
-            break
-
-    if not image_url:
-        og_image = soup.find("meta", property="og:image")
-        if og_image and og_image.get("content") and "logo" not in og_image["content"].lower():
-            image_url = og_image["content"]
+    # Resim akvaryum.com yerine DuckDuckGo üzerinden bulunuyor
+    image_url = fetch_ddg_image(title)
 
     return {
         "title": title,
