@@ -6,7 +6,6 @@ import urllib.parse
 
 import requests
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 from flask import Flask
 from telegram import Update
 from telegram.constants import ParseMode
@@ -21,10 +20,9 @@ HEADERS = {
 }
 
 CATEGORY_URLS = [
-    # Tatlı Su Kategorileri
-    "https://www.akvaryum.com/malawi_cichlidleri_kategorisi_3.asp",
+   "https://www.akvaryum.com/malawi_cichlidleri_kategorisi_3.asp",
     "https://www.akvaryum.com/tanganyika_cichlidleri_kategorisi_2.asp",
-    "https://www.akvaryum.com/victoria_cichlidleri_kategorisi_5.asp",
+    "https://www.akvaryum.com/victoria_cichlidleri_kategorisi_22.asp",
     "https://www.akvaryum.com/guney_amerika_cichlidleri_kategorisi_4.asp",
     "https://www.akvaryum.com/orta_amerika_cichlidleri_kategorisi_88.asp",
     "https://www.akvaryum.com/canli_doguranlar_kategorisi_5.asp",
@@ -36,11 +34,21 @@ CATEGORY_URLS = [
     "https://www.akvaryum.com/gokkusaklari_kategorisi_11.asp",
     "https://www.akvaryum.com/omurgasizlar_kategorisi_8.asp",
     "https://www.akvaryum.com/diğer_tatli_su_canlilari_kategorisi_12.asp",
-    # Bitkiler & Deniz & Diğer
-    "https://www.akvaryum.com/Bitkiler/",
-    "https://www.akvaryum.com/Deniz/",
     "https://www.akvaryum.com/surungenler_kategorisi_35.asp",
-    "https://www.akvaryum.com/hastaliklar_kategorisi_23.asp"
+    "https://www.akvaryum.com/govdeli_bitkiler_kategorisi_25.asp",
+    "https://www.akvaryum.com/koklu_ve_genis_yaprakli_bitkiler_kategorisi_26.asp",
+    "https://www.akvaryum.com/soganli_ve_yumrulu_bitkiler_kategorisi_27.asp",
+    "https://www.akvaryum.com/su_yuzu_bitkileri_kategorisi_28.asp",
+    "https://www.akvaryum.com/mosslar_ve_yosunlar_kategorisi_29.asp",
+    "https://www.akvaryum.com/rizomlu_bitkiler_kategorisi_30.asp",
+    "https://www.akvaryum.com/surgunlu_ve_zemin_bitkileri_kategorisi_31.asp",
+    "https://www.akvaryum.com/paludaryum_bitkileri_kategorisi_32.asp",
+    "https://www.akvaryum.com/diger_bitkiler_kategorisi_33.asp",
+    "https://www.akvaryum.com/deniz_baliklari_kategorisi_16.asp",
+    "https://www.akvaryum.com/yumusak_mercanlar_kategorisi_18.asp",
+    "https://www.akvaryum.com/lps_mercanlar_kategorisi_19.asp",
+    "https://www.akvaryum.com/sps_mercanlar_kategorisi_20.asp",
+    "https://www.akvaryum.com/diger_deniz_omurgasizlari_kategorisi_21.asp"
 ]
 
 FIELD_LABELS = {
@@ -66,18 +74,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-
-def fetch_ddg_image(query: str):
-    """DuckDuckGo üzerinden başlığa uygun ilk görseli çeker."""
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.images(f"{query} akvaryum", max_results=1))
-            if results:
-                return results[0]["image"]
-    except Exception as e:
-        logger.warning("DuckDuckGo görsel çekme hatası: %s", e)
-    return None
 
 
 def find_fish_url_direct(fish_name: str):
@@ -143,8 +139,19 @@ def parse_fish_page(url: str):
                     data[label] = value
                 break
 
-    # Resim akvaryum.com yerine DuckDuckGo üzerinden bulunuyor
-    image_url = fetch_ddg_image(title)
+    image_url = None
+    for img in soup.find_all("img", src=True):
+        src = img["src"]
+        if any(ignored in src.lower() for ignored in ["logo", "banner", "icon", "reklam", "butongm"]):
+            continue
+        if any(target in src.lower() for target in ["foto_arsiv", "veri_resimler", "arsiv", "resimler"]):
+            image_url = urllib.parse.urljoin(url, src)
+            break
+
+    if not image_url:
+        og_image = soup.find("meta", property="og:image")
+        if og_image and og_image.get("content") and "logo" not in og_image["content"].lower():
+            image_url = og_image["content"]
 
     return {
         "title": title,
